@@ -33,14 +33,20 @@ jobs:
 
       - run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor}} --password-stdin
 
+      # GHCR repository paths must be lowercase; github.repository_owner preserves org casing (e.g. GSA-TTS).
+      - run: echo "owner=${OWNER,,}" >> "$GITHUB_OUTPUT"
+        id: ghcr-owner
+        env:
+          OWNER: ${{ github.repository_owner }}
+
       - run: ko publish -B ./cmd/allstar --tags ${{ github.ref_name }} --image-refs allstar.ref
         env:
-          KO_DOCKER_REPO: ghcr.io/${{ github.repository_owner }}
+          KO_DOCKER_REPO: ghcr.io/${{ steps.ghcr-owner.outputs.owner }}
           KO_DEFAULTPLATFORMS: linux/arm64,linux/amd64
 
       - run: ko publish -B ./cmd/allstar --tags ${{ github.ref_name }}-gha --image-refs allstar-gha.ref
         env:
-          KO_DOCKER_REPO: ghcr.io/${{ github.repository_owner }}
+          KO_DOCKER_REPO: ghcr.io/${{ steps.ghcr-owner.outputs.owner }}
           KO_DEFAULTBASEIMAGE: cgr.dev/chainguard/node:latest
           KO_DEFAULTPLATFORMS: linux/arm64,linux/amd64
 
@@ -71,5 +77,5 @@ jobs:
             --notes-file release-notes.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OWNER: ${{ github.repository_owner }}
+          OWNER: ${{ steps.ghcr-owner.outputs.owner }}
           TAG: ${{ github.ref_name }}
