@@ -205,9 +205,32 @@ func fetchConfig(ctx context.Context, r repositories, owner, repoIn, name string
 		repo = repoIn
 		p = path.Join(operator.RepoConfigDir, name)
 	}
+
+	// Memoize the resolved config JSON per (owner, repoIn, name, level) for the
+	// lifetime of a repo's run. Every policy fetches these same files from
+	// IsEnabled, Check, and GetAction, so without this cache each repo makes
+	// many redundant GetContents calls that burn the GitHub API rate limit.
+	cacheKey := repoConfigCacheKey(owner, repoIn, name, cl)
+	if cached, ok, miss := getRepoConfigCache(cacheKey); ok {
+		if miss {
+			// A previous lookup resolved to "no config" (404/absent); skip refetch.
+			return nil
+		}
+		if err := json.Unmarshal(cached, out); err != nil {
+			log.Warn().
+				Str("org", owner).
+				Str("repo", repo).
+				Str("file", p).
+				Err(err).
+				Msg("Malformed config file, using defaults.")
+		}
+		return nil
+	}
+
 	cf, _, rsp, err := walkGC(ctx, r, owner, repo, p, nil)
 	if err != nil {
 		if rsp != nil && rsp.StatusCode == http.StatusNotFound {
+			setRepoConfigCacheMiss(cacheKey)
 			return nil
 		}
 		return err
@@ -227,6 +250,7 @@ func fetchConfig(ctx context.Context, r repositories, owner, repoIn, name string
 		}
 		conJSON = mergedJSON
 	}
+	setRepoConfigCache(cacheKey, conJSON)
 	if err := json.Unmarshal(conJSON, out); err != nil {
 		log.Warn().
 			Str("org", owner).
