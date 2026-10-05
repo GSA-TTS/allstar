@@ -171,6 +171,7 @@ issueDetails: test Issue Detail
 
 	for _, test := range tests {
 		t.Run(test.Name, func(t *testing.T) {
+			ClearRepoConfigCache("", "")
 			walkGC = func(ctx context.Context, r repositories, owner, repo, path string,
 				opts *github.RepositoryContentGetOptions) (*github.RepositoryContent,
 				[]*github.RepositoryContent, *github.Response, error,
@@ -195,6 +196,81 @@ issueDetails: test Issue Detail
 				t.Errorf("Unexpected results. (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestFetchConfigCache(t *testing.T) {
+	ClearRepoConfigCache("owner", "repo")
+
+	var walkCalls int
+	walkGC = func(ctx context.Context, r repositories, owner, repo, path string,
+		opts *github.RepositoryContentGetOptions) (*github.RepositoryContent,
+		[]*github.RepositoryContent, *github.Response, error,
+	) {
+		walkCalls++
+		e := "base64"
+		c := base64.StdEncoding.EncodeToString([]byte("issueLabel: cached\n"))
+		return &github.RepositoryContent{Encoding: &e, Content: &c}, nil, nil, nil
+	}
+	get = func(ctx context.Context, owner, repo string) (*github.Repository,
+		*github.Response, error,
+	) {
+		return nil, nil, nil
+	}
+
+	// First fetch hits the backend; subsequent identical fetches are served
+	// from the per-repo cache without another walkGetContents call.
+	for i := 0; i < 3; i++ {
+		out := &OrgConfig{}
+		if err := fetchConfig(context.Background(), mockRepos{}, "owner", "repo", "", OrgLevel, out); err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		if out.IssueLabel != "cached" {
+			t.Errorf("Expected IssueLabel \"cached\", got %q", out.IssueLabel)
+		}
+	}
+	if walkCalls != 1 {
+		t.Errorf("Expected 1 backend call across 3 fetches, got %d", walkCalls)
+	}
+
+	// Clearing the cache for the repo forces a refetch.
+	ClearRepoConfigCache("owner", "repo")
+	out := &OrgConfig{}
+	if err := fetchConfig(context.Background(), mockRepos{}, "owner", "repo", "", OrgLevel, out); err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if walkCalls != 2 {
+		t.Errorf("Expected refetch after clear (2 backend calls), got %d", walkCalls)
+	}
+}
+
+func TestFetchConfigCacheMiss(t *testing.T) {
+	ClearRepoConfigCache("owner", "repo")
+
+	var walkCalls int
+	walkGC = func(ctx context.Context, r repositories, owner, repo, path string,
+		opts *github.RepositoryContentGetOptions) (*github.RepositoryContent,
+		[]*github.RepositoryContent, *github.Response, error,
+	) {
+		walkCalls++
+		return nil, nil, &github.Response{Response: &http.Response{StatusCode: http.StatusNotFound}}, errors.New("not found")
+	}
+	get = func(ctx context.Context, owner, repo string) (*github.Repository,
+		*github.Response, error,
+	) {
+		return nil, nil, nil
+	}
+
+	// An absent config (404) is cached as a miss so repeated lookups don't
+	// re-issue the same doomed GetContents requests.
+	for i := 0; i < 3; i++ {
+		out := &OrgConfig{}
+		if err := fetchConfig(context.Background(), mockRepos{}, "owner", "repo", "", OrgLevel, out); err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+	}
+	if walkCalls != 1 {
+		t.Errorf("Expected 1 backend call for cached 404 miss, got %d", walkCalls)
 	}
 }
 

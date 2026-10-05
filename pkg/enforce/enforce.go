@@ -359,6 +359,7 @@ func runPoliciesReal(ctx context.Context, c *github.Client, owner, repo string, 
 	}
 
 	defer scorecard.Close(fmt.Sprintf("%s/%s", owner, repo))
+	defer config.ClearRepoConfigCache(owner, repo)
 	for _, p := range ps {
 		repo_enabled, err := p.IsEnabled(ctx, c, owner, repo)
 		if err != nil {
