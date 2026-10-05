@@ -23,7 +23,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-github/v84/github"
-
 	"github.com/ossf/allstar/pkg/config"
 	"github.com/ossf/allstar/pkg/policydef"
 )
@@ -1094,8 +1093,8 @@ func TestCheck(t *testing.T) {
 				ApprovalCount:   1,
 				BlockForce:      true,
 			},
-			Repo: RepoConfig{},
-			Prot: map[string]github.Protection{},
+			Repo:  RepoConfig{},
+			Prot:  map[string]github.Protection{},
 			Rules: map[string]github.BranchRules{},
 			SigProtection: map[string]github.SignaturesProtectedBranch{
 				"main": {
