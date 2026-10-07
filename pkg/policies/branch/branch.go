@@ -176,7 +176,27 @@ type details struct {
 	RequireStatusChecks     []StatusCheck
 	RequireSignedCommits    bool
 	RequireCodeOwnerReviews bool
+
+	// ViaRuleset is true when some or all of the above coverage was satisfied
+	// by a repository ruleset rather than classic branch protection. Used to
+	// tailor remediation guidance, since rulesets do not model admin
+	// enforcement the same way as classic branch protection.
+	ViaRuleset bool
 }
+
+// enforceOnAdminsRulesetGuidance is appended to the issue body when the only
+// remaining branch protection failure is EnforceOnAdmins and the branch is
+// otherwise protected by a repository ruleset. Classic branch protection
+// exposes an "Include administrators" toggle; rulesets instead express this
+// as the absence of bypass actors, which Allstar does not evaluate.
+const enforceOnAdminsRulesetGuidance = "This branch is protected by a repository ruleset rather than classic branch protection. " +
+	"Allstar reads ruleset coverage for reviews, status checks, force-push, and signatures, but it cannot confirm " +
+	"admin enforcement from a ruleset. In a ruleset, administrators are only bound by the rules when they are not " +
+	"listed as bypass actors (there is no \"Include administrators\" checkbox).\n" +
+	"To resolve this, open the ruleset for this repository (Settings > Rules > Rulesets), and under \"Bypass list\" " +
+	"remove \"Organization admin\" / \"Repository admin\" (or set their bypass to a value other than \"Always\") so " +
+	"the rules also apply to administrators. Alternatively, enable classic branch protection with \"Include " +
+	"administrators\" checked, or disable the Branch Protection policy for this repository in Allstar configuration.\n"
 
 var (
 	configFetchConfig func(context.Context, *github.Client, string, string, string, config.ConfigLevel, interface{}) error
@@ -398,8 +418,10 @@ func getProtectionDetails(p *github.Protection) details {
 
 // getRulesetDetails extracts policy-relevant details from active repository
 // rulesets applying to branch. Rulesets are not used to satisfy
-// EnforceOnAdmins, since rulesets model bypass behavior differently than
-// classic branch protection.
+// EnforceOnAdmins, since rulesets model admin coverage via bypass actors
+// rather than classic branch protection's "Include administrators" flag; when
+// coverage comes from a ruleset the returned details are flagged ViaRuleset so
+// the EnforceOnAdmins failure can carry ruleset-specific guidance.
 func getRulesetDetails(ctx context.Context, rep repositories, owner, repo, branch string) (details, bool, error) {
 	rules, rsp, err := rep.GetRulesForBranch(ctx, owner, repo, branch, nil)
 	if err != nil {
@@ -460,6 +482,8 @@ func getRulesetDetails(ctx context.Context, rep repositories, owner, repo, branc
 		d.RequireSignedCommits = true
 	}
 
+	d.ViaRuleset = protected
+
 	return d, protected, nil
 }
 
@@ -477,6 +501,7 @@ func mergeDetails(a, b details) details {
 	a.RequireStatusChecks = append(a.RequireStatusChecks, b.RequireStatusChecks...)
 	a.RequireSignedCommits = a.RequireSignedCommits || b.RequireSignedCommits
 	a.RequireCodeOwnerReviews = a.RequireCodeOwnerReviews || b.RequireCodeOwnerReviews
+	a.ViaRuleset = a.ViaRuleset || b.ViaRuleset
 	return a
 }
 
@@ -516,6 +541,9 @@ func evaluateBranchDetails(branch string, d details, mc *mergedConfig, protected
 	if mc.EnforceOnAdmins && !d.EnforceOnAdmins {
 		text += fmt.Sprintf("Enforce status checks on admins not configured for branch %v\n",
 			branch)
+		if d.ViaRuleset {
+			text += enforceOnAdminsRulesetGuidance
+		}
 		pass = false
 	}
 

@@ -1036,6 +1036,56 @@ func TestCheck(t *testing.T) {
 						PRReviews:  true,
 						NumReviews: 1,
 						BlockForce: true,
+						ViaRuleset: true,
+					},
+				},
+			},
+		},
+		{
+			Name: "RulesetProtectedButEnforceOnAdminsIncludesGuidance",
+			Org: OrgConfig{
+				OptConfig: config.OrgOptConfig{
+					OptOutStrategy: true,
+				},
+				EnforceDefault:  true,
+				RequireApproval: true,
+				ApprovalCount:   1,
+				BlockForce:      true,
+				EnforceOnAdmins: true,
+			},
+			Repo: RepoConfig{},
+			Prot: map[string]github.Protection{},
+			Rules: map[string]github.BranchRules{
+				"main": {
+					PullRequest: []*github.PullRequestBranchRule{
+						{
+							Parameters: github.PullRequestRuleParameters{
+								RequiredApprovingReviewCount: 1,
+							},
+						},
+					},
+					NonFastForward: []*github.BranchRuleMetadata{
+						{RulesetID: 1},
+					},
+				},
+			},
+			SigProtection: map[string]github.SignaturesProtectedBranch{
+				"main": {
+					Enabled: github.Ptr(false),
+				},
+			},
+			cofigEnabled: true,
+			Exp: policydef.Result{
+				Enabled: true,
+				Pass:    false,
+				NotifyText: "Enforce status checks on admins not configured for branch main\n" +
+					enforceOnAdminsRulesetGuidance,
+				Details: map[string]details{
+					"main": {
+						PRReviews:  true,
+						NumReviews: 1,
+						BlockForce: true,
+						ViaRuleset: true,
 					},
 				},
 			},
@@ -1079,6 +1129,7 @@ func TestCheck(t *testing.T) {
 						PRReviews:  true,
 						NumReviews: 1,
 						BlockForce: false,
+						ViaRuleset: true,
 					},
 				},
 			},
